@@ -1,41 +1,46 @@
 #include "main.h"
+#include "utilities.h"
 
-
-pose_pcd::pose_pcd(const nav_msgs::Odometry &odom_in, const sensor_msgs::PointCloud2 &pcd_in, const int &idx_in)
-{
-  tf::Quaternion q_(odom_in.pose.pose.orientation.x, odom_in.pose.pose.orientation.y, odom_in.pose.pose.orientation.z, odom_in.pose.pose.orientation.w);
-  tf::Matrix3x3 m_(q_);
-  Eigen::Matrix3d tmp_rot_mat_;
-  tf::matrixTFToEigen(m_, tmp_rot_mat_);
-  pose_eig.block<3, 3>(0, 0) = tmp_rot_mat_;
-  pose_eig(0, 3) = odom_in.pose.pose.position.x;
-  pose_eig(1, 3) = odom_in.pose.pose.position.y;
-  pose_eig(2, 3) = odom_in.pose.pose.position.z;
-  pose_corrected_eig = pose_eig;
+pose_pcd::pose_pcd(const nav_msgs::msg::Odometry &odom_in,
+                   const sensor_msgs::msg::PointCloud2 &pcd_in,
+                   const int &idx_in) {
+  tf2::Transform tf(
+      tf2::Quaternion(
+          odom_in.pose.pose.orientation.x, odom_in.pose.pose.orientation.y,
+          odom_in.pose.pose.orientation.z, odom_in.pose.pose.orientation.z),
+      tf2::Vector3(odom_in.pose.pose.position.x, odom_in.pose.pose.position.y,
+                   odom_in.pose.pose.position.z));
+  tf2_to_eigen(tf, pose_corrected_eig);
   pcl::PointCloud<pcl::PointXYZI> tmp_pcd_;
   pcl::fromROSMsg(pcd_in, tmp_pcd_);
-  pcd = tf_pcd(tmp_pcd_, pose_eig.inverse()); //FAST-LIO publish data in world frame, so save it in LiDAR frame
-  timestamp = odom_in.header.stamp.toSec();
+  pcd =
+      tf_pcd(tmp_pcd_,
+             pose_corrected_eig.inverse());  // FAST-LIO publish data in world
+                                             // frame, so save it in LiDAR frame
+  timestamp = odom_in.header.stamp.sec + odom_in.header.stamp.nanosec * 1e-9;
   idx = idx_in;
 }
 
-FAST_LIO_SAM_CLASS::FAST_LIO_SAM_CLASS(const ros::NodeHandle& n_private) : m_nh(n_private)
-{
+FAST_LIO_SAM_CLASS::FAST_LIO_SAM_CLASS(rclcpp::NodeOptions options)
+    : Node("fast_lio_sam", options) {
   ////// ROS params
   // temp vars
-  double loop_update_hz_, vis_hz_;
+  // double loop_update_hz_, vis_hz_;
   // get params
-  m_nh.param<string>("/map_frame", m_map_frame, "map");
-  m_nh.param<double>("/keyframe_threshold", m_keyframe_thr, 1.0);
-  m_nh.param<double>("/loop_detection_radius", m_loop_det_radi, 15.0);
-  m_nh.param<double>("/loop_detection_timediff_threshold", m_loop_det_tdiff_thr, 10.0);
-  m_nh.param<double>("/icp_score_threshold", m_icp_score_thr, 10.0);
-  m_nh.param<int>("/subkeyframes_number", m_sub_key_num, 5);
-  m_nh.param<double>("/loop_update_hz", loop_update_hz_, 1.0);
-  m_nh.param<double>("/vis_hz", vis_hz_, 0.5);
+  m_map_frame = this->declare_parameter<std::string>("map_frame", "map");
+  m_keyframe_thr = this->declare_parameter<double>("keyframe_threshold", 1.0);
+  m_loop_det_radi =
+    this->declare_parameter<double>("loop_detection_radius", 15.0);
+  m_loop_det_tdiff_thr = this->declare_parameter<double>(
+    "loop_detection_timediff_threshold", 10.0);
+  m_icp_score_thr =
+    this->declare_parameter<double>("icp_score_threshold", 10.0);
+  m_sub_key_num = this->declare_parameter<int>("subkeyframes_number", 5);
+  m_loop_update_hz_ = this->declare_parameter<double>("loop_update_hz", 1.0);
+  m_vis_hz_ = this->declare_parameter<double>("vis_hz", 0.5);
   /* results */
-  m_nh.param<bool>("/result/save_map_bag", m_save_map_bag, false);
-  m_nh.param<bool>("/result/save_map_pcd", m_save_map_pcd, false);
+  m_save_map_bag = this->declare_parameter<bool>("result/save_map_bag", false);
+  m_save_map_pcd = this->declare_parameter<bool>("result/save_map_pcd", false);
 
   ////// GTSAM init
   gtsam::ISAM2Params isam_params_;
@@ -45,7 +50,7 @@ FAST_LIO_SAM_CLASS::FAST_LIO_SAM_CLASS(const ros::NodeHandle& n_private) : m_nh(
   ////// loop init
   m_voxelgrid.setLeafSize(0.3, 0.3, 0.3);
   m_voxelgrid_vis.setLeafSize(0.2, 0.2, 0.2);
-  m_icp.setMaxCorrespondenceDistance(m_loop_det_radi*2.0);
+  m_icp.setMaxCorrespondenceDistance(m_loop_det_radi * 2.0);
   m_icp.setTransformationEpsilon(1e-2);
   m_icp.setEuclideanFitnessEpsilon(1e-2);
   m_icp.setMaximumIterations(100);
@@ -54,62 +59,88 @@ FAST_LIO_SAM_CLASS::FAST_LIO_SAM_CLASS(const ros::NodeHandle& n_private) : m_nh(
   ////// ROS things
   m_odom_path.header.frame_id = m_map_frame;
   m_corrected_path.header.frame_id = m_map_frame;
-  m_package_path = ros::package::getPath("fast_lio_sam");
+  m_package_path = ".";
+  // m_package_path = rclcpp::package::getPath("fast_lio_sam");
+  m_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
   // publishers
-  m_odom_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/ori_odom", 10, true);
-  m_path_pub = m_nh.advertise<nav_msgs::Path>("/ori_path", 10, true);
-  m_corrected_odom_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/corrected_odom", 10, true);
-  m_corrected_path_pub = m_nh.advertise<nav_msgs::Path>("/corrected_path", 10, true);
-  m_corrected_pcd_map_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/corrected_map", 10, true);
-  m_corrected_current_pcd_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/corrected_current_pcd", 10, true);
-  m_loop_detection_pub = m_nh.advertise<visualization_msgs::Marker>("/loop_detection", 10, true);
-  m_realtime_pose_pub = m_nh.advertise<geometry_msgs::PoseStamped>("/pose_stamped", 10);
-  m_debug_src_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/src", 10, true);
-  m_debug_dst_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/dst", 10, true);
-  m_debug_aligned_pub = m_nh.advertise<sensor_msgs::PointCloud2>("/aligned", 10, true);
+  m_odom_pub =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>("ori_odom", 10);
+  m_path_pub = this->create_publisher<nav_msgs::msg::Path>("ori_path", 10);
+  m_corrected_odom_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+      "corrected_odom", 10);
+  m_corrected_path_pub =
+      this->create_publisher<nav_msgs::msg::Path>("corrected_path", 10);
+  m_corrected_pcd_map_pub =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>("corrected_map",
+                                                            10);
+  m_corrected_current_pcd_pub =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>(
+          "corrected_current_pcd", 10);
+  m_loop_detection_pub =
+      this->create_publisher<visualization_msgs::msg::Marker>("loop_detection",
+                                                              10);
+  m_realtime_pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>(
+      "pose_stamped", 10);
+  m_debug_src_pub =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>("src", 10);
+  m_debug_dst_pub =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>("dst", 10);
+  m_debug_aligned_pub =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>("aligned", 10);
   // subscribers
-  m_sub_odom = std::make_shared<message_filters::Subscriber<nav_msgs::Odometry>>(m_nh, "/Odometry", 10);
-  m_sub_pcd = std::make_shared<message_filters::Subscriber<sensor_msgs::PointCloud2>>(m_nh, "/cloud_registered", 10);
-  m_sub_odom_pcd_sync = std::make_shared<message_filters::Synchronizer<odom_pcd_sync_pol>>(odom_pcd_sync_pol(10), *m_sub_odom, *m_sub_pcd);
-  m_sub_odom_pcd_sync->registerCallback(boost::bind(&FAST_LIO_SAM_CLASS::odom_pcd_cb, this, _1, _2));
+  m_sub_odom_.subscribe(this, "odom");
+  // =
+  //     std::make_shared<message_filters::Subscriber<nav_msgs::msg::Odometry>>(this,
+  //     "/odom", 10);
+  //         // , "/Odometry", 10);
+  m_sub_pcd_.subscribe(this, "cloud_registered");
+  m_sub_odom_pcd_sync_ =
+      std::make_shared<message_filters::Synchronizer<odom_pcd_sync_pol>>(
+          odom_pcd_sync_pol(10), m_sub_odom_, m_sub_pcd_);
+  m_sub_odom_pcd_sync_->registerCallback(
+      std::bind(&FAST_LIO_SAM_CLASS::odom_pcd_cb, this, std::placeholders::_1,
+                std::placeholders::_2));
   // Timers at the end
-  m_loop_timer = m_nh.createTimer(ros::Duration(1/loop_update_hz_), &FAST_LIO_SAM_CLASS::loop_timer_func, this);
-  m_vis_timer = m_nh.createTimer(ros::Duration(1/vis_hz_), &FAST_LIO_SAM_CLASS::vis_timer_func, this);
-  
-  ROS_WARN("Main class, starting node...");
+  m_loop_timer_ = this->create_wall_timer(
+      std::chrono::duration<double>(1 / m_loop_update_hz_),
+      std::bind(&FAST_LIO_SAM_CLASS::on_timer_callback, this));
+  m_vis_timer_ = this->create_wall_timer(
+      std::chrono::duration<double>(1 / m_vis_hz_),
+      std::bind(&FAST_LIO_SAM_CLASS::on_vis_timer_callback, this));
+
+  RCLCPP_INFO(this->get_logger(), "Main class, starting node...");
 }
 
-FAST_LIO_SAM_CLASS::~FAST_LIO_SAM_CLASS()
-{
+FAST_LIO_SAM_CLASS::~FAST_LIO_SAM_CLASS() {
   // save map
-  if (m_save_map_bag)
-  {
-    rosbag::Bag bag_;
-    bag_.open(m_package_path+"/result.bag", rosbag::bagmode::Write);
+  if (m_save_map_bag) {
+    auto bag = std::make_unique<rosbag2_cpp::Writer>();
+    bag->open(m_package_path + "/result.bag");
     {
       lock_guard<mutex> lock(m_keyframes_mutex);
-      for (int i = 0; i < m_keyframes.size(); ++i)
-      {
-        ros::Time time_;
-        time_.fromSec(m_keyframes[i].timestamp);
-        bag_.write("/keyframe_pcd", time_, pcl_to_pcl_ros(m_keyframes[i].pcd, m_map_frame));
-        bag_.write("/keyframe_pose", time_, pose_eig_to_pose_stamped(m_keyframes[i].pose_corrected_eig));
+      for (int i = 0; i < m_keyframes.size(); ++i) {
+        rclcpp::Time time(m_keyframes[i].timestamp);
+        // time = m_keyframes[i].timestamp;
+        bag->write(pcl_to_pcl_ros(m_keyframes[i].pcd, m_map_frame),
+                   "/keyframe_pcd", time);
+        bag->write(pose_eig_to_pose_stamped(m_keyframes[i].pose_corrected_eig),
+                   "/keyframe_pose", time);
       }
     }
-    bag_.close();
+    // bag->close();
     cout << "\033[36;1mResult saved in .bag format!!!\033[0m" << endl;
   }
-  if (m_save_map_pcd)
-  {
+  if (m_save_map_pcd) {
     pcl::PointCloud<pcl::PointXYZI> corrected_map_;
     {
       lock_guard<mutex> lock(m_keyframes_mutex);
-      for (int i = 0; i < m_keyframes.size(); ++i)
-      {
-        corrected_map_ += tf_pcd(m_keyframes[i].pcd, m_keyframes[i].pose_corrected_eig);
+      for (int i = 0; i < m_keyframes.size(); ++i) {
+        corrected_map_ +=
+            tf_pcd(m_keyframes[i].pcd, m_keyframes[i].pose_corrected_eig);
       }
     }
-    pcl::io::savePCDFileASCII<pcl::PointXYZI> (m_package_path+"/result.pcd", corrected_map_);
+    pcl::io::savePCDFileASCII<pcl::PointXYZI>(m_package_path + "/result.pcd",
+                                              corrected_map_);
     cout << "\033[32;1mResult saved in .pcd format!!!\033[0m" << endl;
   }
 }

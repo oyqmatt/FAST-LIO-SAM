@@ -1,4 +1,5 @@
 #include "main.h"
+#include "utilities.h"
 
 
 void FAST_LIO_SAM_CLASS::update_vis_vars(const pose_pcd &pose_pcd_in)
@@ -10,9 +11,9 @@ void FAST_LIO_SAM_CLASS::update_vis_vars(const pose_pcd &pose_pcd_in)
   return;
 }
 
-visualization_msgs::Marker FAST_LIO_SAM_CLASS::get_loop_markers(const gtsam::Values &corrected_esti_in)
+visualization_msgs::msg::Marker FAST_LIO_SAM_CLASS::get_loop_markers(const gtsam::Values &corrected_esti_in)
 {
-  visualization_msgs::Marker edges_; edges_.type = 5u;
+  visualization_msgs::msg::Marker edges_; edges_.type = 5u;
   edges_.scale.x = 0.12f; edges_.header.frame_id = m_map_frame; edges_.pose.orientation.w = 1.0f;
   edges_.color.r = 1.0f; edges_.color.g = 1.0f; edges_.color.b = 1.0f; edges_.color.a = 1.0f;
   for (int i = 0; i < m_loop_idx_pairs.size(); ++i)
@@ -20,7 +21,7 @@ visualization_msgs::Marker FAST_LIO_SAM_CLASS::get_loop_markers(const gtsam::Val
     if (m_loop_idx_pairs[i].first >= corrected_esti_in.size() || m_loop_idx_pairs[i].second >= corrected_esti_in.size()) continue;
     gtsam::Pose3 pose_ = corrected_esti_in.at<gtsam::Pose3>(m_loop_idx_pairs[i].first);
     gtsam::Pose3 pose2_ = corrected_esti_in.at<gtsam::Pose3>(m_loop_idx_pairs[i].second);
-    geometry_msgs::Point p_, p2_;
+    geometry_msgs::msg::Point p_, p2_;
     p_.x = pose_.translation().x(); p_.y = pose_.translation().y(); p_.z = pose_.translation().z();
     p2_.x = pose2_.translation().x(); p2_.y = pose2_.translation().y(); p2_.z = pose2_.translation().z();
     edges_.points.push_back(p_);
@@ -89,8 +90,8 @@ void FAST_LIO_SAM_CLASS::icp_key_to_subkeys(const pose_pcd &front_keyframe, cons
   m_icp.setInputSource(src_);
   m_icp.setInputTarget(dst_);
   m_icp.align(dummy_);
-  m_debug_src_pub.publish(pcl_to_pcl_ros(src_raw_, m_map_frame));
-  m_debug_dst_pub.publish(pcl_to_pcl_ros(dst_raw_, m_map_frame));
-  m_debug_aligned_pub.publish(pcl_to_pcl_ros(dummy_, m_map_frame));
+  m_debug_src_pub->publish(pcl_to_pcl_ros(src_raw_, m_map_frame));
+  m_debug_dst_pub->publish(pcl_to_pcl_ros(dst_raw_, m_map_frame));
+  m_debug_aligned_pub->publish(pcl_to_pcl_ros(dummy_, m_map_frame));
 	return;
 }

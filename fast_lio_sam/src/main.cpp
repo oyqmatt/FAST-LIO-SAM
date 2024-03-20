@@ -3,16 +3,21 @@
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "fast_lio_sam_node");
-  ros::NodeHandle nh_private("~");
+  rclcpp::init(argc, argv);
+  // ros::NodeHandle nh_private("~");
 
-  FAST_LIO_SAM_CLASS fast_lio_sam_(nh_private);
+  auto node = std::make_shared<FAST_LIO_SAM_CLASS>(rclcpp::NodeOptions());
 
-  ros::AsyncSpinner spinner(4); // Use multi threads
-  spinner.start();
-  ros::waitForShutdown();
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
+  executor.add_node(node);
+  
+  std::thread spin_thread([&executor]() {
+    executor.spin();
+  });
 
-  fast_lio_sam_.~FAST_LIO_SAM_CLASS();
+  spin_thread.join();
+  
+  node.reset();
 
   return 0;
 }
