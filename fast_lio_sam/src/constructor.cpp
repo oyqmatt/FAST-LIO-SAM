@@ -11,6 +11,7 @@ pose_pcd::pose_pcd(const nav_msgs::msg::Odometry &odom_in,
       tf2::Vector3(odom_in.pose.pose.position.x, odom_in.pose.pose.position.y,
                    odom_in.pose.pose.position.z));
   tf2_to_eigen(tf, pose_corrected_eig);
+  pose_eig = pose_corrected_eig;
   pcl::PointCloud<pcl::PointXYZI> tmp_pcd_;
   pcl::fromROSMsg(pcd_in, tmp_pcd_);
   pcd =
@@ -40,7 +41,20 @@ FAST_LIO_SAM_CLASS::FAST_LIO_SAM_CLASS(rclcpp::NodeOptions options)
   m_vis_hz_ = this->declare_parameter<double>("vis_hz", 0.5);
   /* results */
   m_save_map_bag = this->declare_parameter<bool>("result/save_map_bag", false);
-  m_save_map_pcd = this->declare_parameter<bool>("result/save_map_pcd", false);
+  m_save_map_pcd = this->declare_parameter<bool>("result/save_map_pcd", true);
+
+  m_map_frame = this->get_parameter("map_frame").as_string();
+  m_keyframe_thr = this->get_parameter("keyframe_threshold").as_double();
+  m_loop_det_radi = this->get_parameter("loop_detection_radius").as_double();
+  m_loop_det_tdiff_thr = this->get_parameter("loop_detection_timediff_threshold").as_double();
+  m_icp_score_thr = this->get_parameter("icp_score_threshold").as_double();
+  m_sub_key_num = this->get_parameter("subkeyframes_number").as_int();
+  m_loop_update_hz_ = this->get_parameter("loop_update_hz").as_double();
+  m_vis_hz_ = this->get_parameter("vis_hz").as_double();
+
+  m_save_map_bag = this->get_parameter("result/save_map_bag").as_bool();
+  m_save_map_pcd = this->get_parameter("result/save_map_pcd").as_bool();
+
 
   ////// GTSAM init
   gtsam::ISAM2Params isam_params_;

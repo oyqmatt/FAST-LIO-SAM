@@ -15,7 +15,7 @@ void tf2_to_eigen(const tf2::Transform &a, Eigen::Matrix4d &b) {
   tf2::Matrix3x3 rot(a.getRotation());
   for (size_t i = 0, rows = 3, cols = 3; i < cols; ++i) {
     for (size_t j = 0; j < rows; ++j) {
-      b(j, i) = rot[i][j];
+      b(i, j) = rot[i][j];
     }
   }
   b(0, 3) = a.getOrigin().getX();
@@ -28,7 +28,7 @@ void eigen_to_tf2(const Eigen::Matrix4d &a, tf2::Transform &b) {
   tf2::Matrix3x3 rot;
   for (size_t i = 0, rows = 3, cols = 3; i < cols; ++i) {
     for (size_t j = 0; j < rows; ++j) {
-      rot[i][j] = a(j, i);
+      rot[i][j] = a(i, j);
     }
   }
   b.setBasis(rot);
@@ -70,15 +70,14 @@ Eigen::Matrix4d gtsam_pose_to_pose_eig(const gtsam::Pose3 &gtsam_pose_in) {
 }
 geometry_msgs::msg::PoseStamped pose_eig_to_pose_stamped(
     const Eigen::Matrix4d &pose_eig_in, string frame_id) {
-  double r_, p_, y_;
   tf2::Transform transform_;
   eigen_to_tf2(pose_eig_in, transform_);
   tf2::Quaternion quat_ = transform_.getRotation();
   geometry_msgs::msg::PoseStamped pose_;
   pose_.header.frame_id = frame_id;
-  pose_.pose.position.x = pose_eig_in(0, 3);
-  pose_.pose.position.y = pose_eig_in(1, 3);
-  pose_.pose.position.z = pose_eig_in(2, 3);
+  pose_.pose.position.x = transform_.getOrigin().getX();
+  pose_.pose.position.y = transform_.getOrigin().getY();
+  pose_.pose.position.z = transform_.getOrigin().getZ();
   pose_.pose.orientation.w = quat_.getW();
   pose_.pose.orientation.x = quat_.getX();
   pose_.pose.orientation.y = quat_.getY();
