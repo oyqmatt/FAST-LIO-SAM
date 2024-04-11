@@ -1,0 +1,9 @@
+repositories:
+  FAST_LIO:
+    type: git
+    url: git@github.com:oyqmatt/FAST_LIO.git
+    version: ROS2
+  livox_ros_driver2:
+    type: git
+    url: https://github.com/rxdu/livox_ros_driver2.git
+    version: devel

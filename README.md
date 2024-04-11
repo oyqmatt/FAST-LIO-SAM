@@ -56,15 +56,16 @@
     cd ~/your_workspace/src
     git clone https://github.com/engcang/FAST-LIO-SAM --recursive
 
-    cd ..
-    catkin build -DCMAKE_BUILD_TYPE=Release
-    . devel/setup.bash
+    cp FAST-LIO-SAM/slam.repos ../
+    vcs import --recursive src < slam.repos
+    colcon build --symlink-install
+    . install/setup.bash
     ```
 + Then run (change config files in third_party/`FAST_LIO`)
     ```shell
-    roslaunch fast_lio_sam run.launch lidar:=ouster
-    roslaunch fast_lio_sam run.launch lidar:=velodyne
-    roslaunch fast_lio_sam run.launch lidar:=livox
+    #roslaunch fast_lio_sam run.launch lidar:=ouster
+    #roslaunch fast_lio_sam run.launch lidar:=velodyne
+    #roslaunch fast_lio_sam run.launch lidar:=livox
     ```
 
 <br>
